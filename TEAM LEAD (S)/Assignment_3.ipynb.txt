@@ -1,0 +1,908 @@
+import pandas as pd
+import numpy as np 
+import itertools
+import keras
+from sklearn import metrics
+from sklearn.metrics import confusion_matrix
+from keras.preprocessing.image import ImageDataGenerator, img_to_array, load_img 
+from keras.models import Sequential 
+from keras import optimizers
+from keras.preprocessing import image
+from keras.layers import Dropout, Flatten, Dense 
+from keras import applications 
+from keras.utils.np_utils import to_categorical 
+import matplotlib.pyplot as plt 
+import matplotlib.image as mpimg
+%matplotlib inline
+import math 
+import datetime
+import time
+Using TensorFlow backend.
+# set default dimentions for the images
+img_width, img_height = 224, 224
+
+#create bottleneck file is conver all the img pixels into numpy array
+top_model_weights_path = 'bottleneck_fc_model.h5'
+#loading datasets
+train_data_dir = 'data/train'
+validation_data_dir = 'data/validation'
+test_data_dir = 'data/test'
+# number of epoch to train top model
+epoch = 7 #this has been changed after multiple model run
+
+
+#batch size used by flow_from_directory and predict_generator
+batch_size = 5
+#Loading vgc16 model
+vgg16 = applications.VGG16(include_top=False, weights='imagenet')
+
+datagen = ImageDataGenerator(rescale=1. / 255) 
+#needed to create the bottleneck .npy files
+WARNING:tensorflow:From C:\Users\LENOVO\Anaconda3\lib\site-packages\keras\backend\tensorflow_backend.py:74: The name tf.get_default_graph is deprecated. Please use tf.compat.v1.get_default_graph instead.
+
+WARNING:tensorflow:From C:\Users\LENOVO\Anaconda3\lib\site-packages\keras\backend\tensorflow_backend.py:517: The name tf.placeholder is deprecated. Please use tf.compat.v1.placeholder instead.
+
+WARNING:tensorflow:From C:\Users\LENOVO\Anaconda3\lib\site-packages\keras\backend\tensorflow_backend.py:4138: The name tf.random_uniform is deprecated. Please use tf.random.uniform instead.
+
+WARNING:tensorflow:From C:\Users\LENOVO\Anaconda3\lib\site-packages\keras\backend\tensorflow_backend.py:3976: The name tf.nn.max_pool is deprecated. Please use tf.nn.max_pool2d instead.
+
+WARNING:tensorflow:From C:\Users\LENOVO\Anaconda3\lib\site-packages\keras\backend\tensorflow_backend.py:174: The name tf.get_default_session is deprecated. Please use tf.compat.v1.get_default_session instead.
+
+WARNING:tensorflow:From C:\Users\LENOVO\Anaconda3\lib\site-packages\keras\backend\tensorflow_backend.py:181: The name tf.ConfigProto is deprecated. Please use tf.compat.v1.ConfigProto instead.
+
+#__this can take an hour and half to run so only run it once. 
+#once the npy files have been created, no need to run again. Convert this cell to a code cell to run.__
+
+start = datetime.datetime.now()
+   
+generator = datagen.flow_from_directory(  
+     train_data_dir,  
+     target_size=(img_width, img_height),  
+     batch_size=batch_size,  
+     class_mode=None,  
+     shuffle=False)  
+nb_train_samples = len(generator.filenames)  
+num_classes = len(generator.class_indices)  
+   
+predict_size_train = int(math.ceil(nb_train_samples / batch_size))  
+   
+bottleneck_features_train = vgg16.predict_generator(generator, predict_size_train)  
+   
+np.save('bottleneck_features_train.npy', bottleneck_features_train)
+end= datetime.datetime.now()
+elapsed= end-start
+print ('Time: ', elapsed)
+Found 4027 images belonging to 5 classes.
+Time:  0:30:12.160282
+print('-'*117)
+---------------------------------------------------------------------------------------------------------------------
+#__this can take half an hour to run so only run it once. once the npy files have been created, no need to run again. Convert this cell to a code cell to run.__
+
+start = datetime.datetime.now()
+generator = datagen.flow_from_directory(  
+     validation_data_dir,  
+     target_size=(img_width, img_height),  
+     batch_size=batch_size,  
+     class_mode=None,  
+     shuffle=False)  
+   nb_validation_samples = len(generator.filenames)  
+   
+predict_size_validation = int(math.ceil(nb_validation_samples / batch_size))  
+   
+bottleneck_features_validation = vgg16.predict_generator(  
+     generator, predict_size_validation)  
+   
+np.save('bottleneck_features_validation.npy', bottleneck_features_validation) 
+end= datetime.datetime.now()
+elapsed= end-start
+print ('Time: ', elapsed)
+Found 866 images belonging to 5 classes.
+Time:  0:06:29.752743
+print('-'*117)
+---------------------------------------------------------------------------------------------------------------------
+#__this can take half an hour to run so only run it once. once the npy files have been created, no need to run again. Convert this cell to a code cell to run.__
+
+start = datetime.datetime.now()
+generator = datagen.flow_from_directory(  
+     test_data_dir,  
+     target_size=(img_width, img_height),  
+     batch_size=batch_size,  
+     class_mode=None,  
+     shuffle=False)  
+   
+nb_test_samples = len(generator.filenames)  
+predict_size_test = int(math.ceil(nb_test_samples / batch_size))  
+   
+bottleneck_features_test = vgg16.predict_generator(  
+     generator, predict_size_test)  
+   
+np.save('bottleneck_features_test.npy', bottleneck_features_test) 
+end= datetime.datetime.now()
+elapsed= end-start
+print ('Time: ', elapsed)
+Found 1464 images belonging to 5 classes.
+Time:  0:11:02.561833
+LOAD TRAINING, VALIDATION and TESTING data
+#training data
+generator_top = datagen.flow_from_directory(  
+         train_data_dir,  
+         target_size=(img_width, img_height),  
+         batch_size=batch_size,  
+         class_mode='categorical',  
+         shuffle=False)  
+   
+nb_train_samples = len(generator_top.filenames)  
+num_classes = len(generator_top.class_indices)  
+   
+# load the bottleneck features saved earlier  
+train_data = np.load('bottleneck_features_train.npy')  
+# get the class lebels for the training data, in the original order  
+train_labels = generator_top.classes  
+   
+# convert the training labels to categorical vectors  
+train_labels = to_categorical(train_labels, num_classes=num_classes)
+Found 4027 images belonging to 5 classes.
+#validation data
+generator_top = datagen.flow_from_directory(  
+         validation_data_dir,  
+         target_size=(img_width, img_height),  
+         batch_size=batch_size,  
+         class_mode=None,  
+         shuffle=False)  
+   
+nb_validation_samples = len(generator_top.filenames)  
+   
+validation_data = np.load('bottleneck_features_validation.npy')  
+   
+
+validation_labels = generator_top.classes  
+validation_labels = to_categorical(validation_labels, num_classes=num_classes)
+Found 866 images belonging to 5 classes.
+#testing data
+generator_top = datagen.flow_from_directory(  
+         test_data_dir,  
+         target_size=(img_width, img_height),  
+         batch_size=batch_size,  
+         class_mode=None,  
+         shuffle=False)  
+   
+nb_test_samples = len(generator_top.filenames)  
+   
+test_data = np.load('bottleneck_features_test.npy')  
+   
+
+test_labels = generator_top.classes  
+test_labels = to_categorical(test_labels, num_classes=num_classes)
+Found 1464 images belonging to 5 classes.
+Training of model
+#This is the best model we found. For additional models, check out I_notebook.ipynb
+start = datetime.datetime.now()
+model = Sequential()  
+model.add(Flatten(input_shape=train_data.shape[1:]))  
+model.add(Dense(100, activation=keras.layers.LeakyReLU(alpha=0.3)))  
+model.add(Dropout(0.5))  
+model.add(Dense(50, activation=keras.layers.LeakyReLU(alpha=0.3)))  
+model.add(Dropout(0.3)) 
+model.add(Dense(num_classes, activation='softmax'))  
+model.compile(loss='categorical_crossentropy',
+              optimizer=optimizers.RMSprop(lr=1e-4),
+              metrics=['acc'])  
+
+history = model.fit(train_data, train_labels,  
+      epochs=7,
+      batch_size=batch_size,  
+      validation_data=(validation_data, validation_labels))  
+
+model.save_weights(top_model_weights_path)  
+
+(eval_loss, eval_accuracy) = model.evaluate(  
+ validation_data, validation_labels, batch_size=batch_size, verbose=1)
+
+print("[INFO] accuracy: {:.2f}%".format(eval_accuracy * 100))  
+print("[INFO] Loss: {}".format(eval_loss))  
+end= datetime.datetime.now()
+elapsed= end-start
+print ('Time: ', elapsed)
+WARNING:tensorflow:From C:\Users\LENOVO\Anaconda3\lib\site-packages\keras\backend\tensorflow_backend.py:3445: calling dropout (from tensorflow.python.ops.nn_ops) with keep_prob is deprecated and will be removed in a future version.
+Instructions for updating:
+Please use `rate` instead of `keep_prob`. Rate should be set to `rate = 1 - keep_prob`.
+WARNING:tensorflow:From C:\Users\LENOVO\Anaconda3\lib\site-packages\keras\optimizers.py:790: The name tf.train.Optimizer is deprecated. Please use tf.compat.v1.train.Optimizer instead.
+
+C:\Users\LENOVO\Anaconda3\lib\site-packages\keras\activations.py:211: UserWarning: Do not pass a layer instance (such as LeakyReLU) as the activation argument of another layer. Instead, advanced activation layers should be used just like any other layer in a model.
+  identifier=identifier.__class__.__name__))
+WARNING:tensorflow:From C:\Users\LENOVO\Anaconda3\lib\site-packages\tensorflow\python\ops\math_grad.py:1250: add_dispatch_support.<locals>.wrapper (from tensorflow.python.ops.array_ops) is deprecated and will be removed in a future version.
+Instructions for updating:
+Use tf.where in 2.0, which has the same broadcast rule as np.where
+Train on 4027 samples, validate on 866 samples
+Epoch 1/7
+4027/4027 [==============================] - 26s 7ms/step - loss: 1.1281 - acc: 0.5756 - val_loss: 0.5994 - val_acc: 0.7910
+Epoch 2/7
+4027/4027 [==============================] - 18s 5ms/step - loss: 0.7727 - acc: 0.7388 - val_loss: 0.4908 - val_acc: 0.8233
+Epoch 3/7
+4027/4027 [==============================] - 19s 5ms/step - loss: 0.6360 - acc: 0.7810 - val_loss: 0.4350 - val_acc: 0.8522
+Epoch 4/7
+4027/4027 [==============================] - 23s 6ms/step - loss: 0.5480 - acc: 0.8120 - val_loss: 0.3382 - val_acc: 0.8903
+Epoch 5/7
+4027/4027 [==============================] - 19s 5ms/step - loss: 0.4645 - acc: 0.8401 - val_loss: 0.2911 - val_acc: 0.9018
+Epoch 6/7
+4027/4027 [==============================] - 18s 5ms/step - loss: 0.4214 - acc: 0.8532 - val_loss: 0.3079 - val_acc: 0.8891
+Epoch 7/7
+4027/4027 [==============================] - 22s 5ms/step - loss: 0.3807 - acc: 0.8721 - val_loss: 0.2367 - val_acc: 0.9215
+866/866 [==============================] - 0s 391us/step
+[INFO] accuracy: 92.15%
+[INFO] Loss: 0.23665985567771813
+Time:  0:02:26.829966
+#Model summary
+model.summary()
+_________________________________________________________________
+Layer (type)                 Output Shape              Param #   
+=================================================================
+flatten_1 (Flatten)          (None, 25088)             0         
+_________________________________________________________________
+dense_1 (Dense)              (None, 100)               2508900   
+_________________________________________________________________
+dropout_1 (Dropout)          (None, 100)               0         
+_________________________________________________________________
+dense_2 (Dense)              (None, 50)                5050      
+_________________________________________________________________
+dropout_2 (Dropout)          (None, 50)                0         
+_________________________________________________________________
+dense_3 (Dense)              (None, 5)                 255       
+=================================================================
+Total params: 2,514,205
+Trainable params: 2,514,205
+Non-trainable params: 0
+_________________________________________________________________
+#Graphing our training and validation
+acc = history.history['acc']
+val_acc = history.history['val_acc']
+loss = history.history['loss']
+val_loss = history.history['val_loss']
+epochs = range(len(acc))
+plt.plot(epochs, acc, 'r', label='Training acc')
+plt.plot(epochs, val_acc, 'b', label='Validation acc')
+plt.title('Training and validation accuracy')
+plt.ylabel('accuracy')  
+plt.xlabel('epoch')
+plt.legend()
+plt.figure()
+plt.plot(epochs, loss, 'r', label='Training loss')
+plt.plot(epochs, val_loss, 'b', label='Validation loss')
+plt.title('Training and validation loss')
+plt.ylabel('loss')  
+plt.xlabel('epoch')
+plt.legend()
+plt.show()
+model.evaluate(test_data, test_labels)
+1464/1464 [==============================] - 1s 374us/step
+[0.2890122901709353, 0.9016393442622951]
+print('test data', test_data)
+preds = np.round(model.predict(test_data),0) 
+#to fit them into classification metrics and confusion metrics, some additional modificaitions are required
+print('rounded test_labels', preds)
+test data [[[[0.00000000e+00 0.00000000e+00 6.02312207e-01 ... 1.96461514e-01
+    9.94315326e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 7.62413070e-02 ... 0.00000000e+00
+    1.12581837e+00 0.00000000e+00]
+   [1.58983786e-02 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    1.10688949e+00 0.00000000e+00]
+   ...
+   [0.00000000e+00 0.00000000e+00 5.35643585e-02 ... 0.00000000e+00
+    9.82706130e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 2.95575351e-01 ... 0.00000000e+00
+    1.45355356e+00 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 5.59204340e-01 ... 0.00000000e+00
+    1.36669838e+00 0.00000000e+00]]
+
+  [[2.92393982e-01 0.00000000e+00 3.09342712e-01 ... 4.28359032e-01
+    7.17160523e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 6.84435293e-02 ... 1.14029959e-01
+    1.09386301e+00 0.00000000e+00]
+   [7.66547740e-01 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    9.84859943e-01 0.00000000e+00]
+...
+   [9.29225460e-02 0.00000000e+00 3.15879732e-01 ... 0.00000000e+00
+    9.12516356e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    1.35863352e+00 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 2.34041959e-01 ... 0.00000000e+00
+    1.44619536e+00 0.00000000e+00]]
+
+  [[7.36100316e-01 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    6.20411634e-01 0.00000000e+00]
+   [3.73666465e-01 0.00000000e+00 5.64455867e-01 ... 0.00000000e+00
+    9.73024487e-01 0.00000000e+00]
+   [3.59219253e-01 0.00000000e+00 4.24971104e-01 ... 0.00000000e+00
+    7.89776087e-01 0.00000000e+00]
+   ...
+   [0.00000000e+00 0.00000000e+00 6.40887022e-01 ... 0.00000000e+00
+    9.27794993e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 4.63500917e-01 ... 0.00000000e+00
+    1.34525073e+00 0.00000000e+00]
+   [3.11801787e-02 0.00000000e+00 5.80436885e-01 ... 0.00000000e+00
+    1.60450864e+00 0.00000000e+00]]
+
+  ...
+
+  [[0.00000000e+00 0.00000000e+00 1.39810658e+00 ... 0.00000000e+00
+    1.87364817e-01 0.00000000e+00]
+   [9.14718747e-01 0.00000000e+00 9.70833123e-01 ... 0.00000000e+00
+    6.94830298e-01 0.00000000e+00]
+   [1.30648398e+00 0.00000000e+00 2.58002579e-01 ... 0.00000000e+00
+    5.58874249e-01 0.00000000e+00]
+   ...
+   [1.01620615e+00 0.00000000e+00 2.72896886e-01 ... 0.00000000e+00
+    5.91135502e-01 0.00000000e+00]
+ [8.96849394e-01 0.00000000e+00 1.21209204e+00 ... 0.00000000e+00
+    7.77776182e-01 0.00000000e+00]
+   [5.61451972e-01 0.00000000e+00 1.12301946e+00 ... 0.00000000e+00
+    1.02534091e+00 0.00000000e+00]]
+
+  [[0.00000000e+00 0.00000000e+00 5.75070381e-01 ... 0.00000000e+00
+    3.39955837e-01 0.00000000e+00]
+   [1.27157152e-01 0.00000000e+00 5.05763650e-01 ... 0.00000000e+00
+    6.99965119e-01 0.00000000e+00]
+   [4.16388899e-01 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    9.38457072e-01 0.00000000e+00]
+   ...
+   [2.21671425e-02 0.00000000e+00 4.17030334e-01 ... 0.00000000e+00
+    3.76008689e-01 0.00000000e+00]
+   [1.40519276e-01 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    2.27336660e-01 0.00000000e+00]
+   [1.20339975e-01 0.00000000e+00 5.26353791e-02 ... 0.00000000e+00
+    8.86999190e-01 0.00000000e+00]]
+
+  [[0.00000000e+00 0.00000000e+00 8.91470164e-02 ... 0.00000000e+00
+    9.22302008e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.37207896e-01 ... 0.00000000e+00
+    5.07726967e-01 0.00000000e+00]
+   [1.07378013e-01 0.00000000e+00 3.01991075e-01 ... 0.00000000e+00
+    1.26713336e+00 0.00000000e+00]
+   ...
+   [0.00000000e+00 0.00000000e+00 3.87214929e-01 ... 0.00000000e+00
+    8.16506803e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    6.51575685e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.31042287e-01 ... 0.00000000e+00
+    9.56049144e-01 0.00000000e+00]]]
+[[[0.00000000e+00 0.00000000e+00 1.63744643e-01 ... 0.00000000e+00
+    8.24313700e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.05089629e+00 ... 0.00000000e+00
+    7.46338129e-01 0.00000000e+00]
+   [1.92977805e-02 0.00000000e+00 9.22628045e-01 ... 0.00000000e+00
+    6.12195313e-01 0.00000000e+00]
+   ...
+   [0.00000000e+00 0.00000000e+00 3.24079901e-01 ... 0.00000000e+00
+    7.05191195e-01 0.00000000e+00]
+   [4.66569215e-02 0.00000000e+00 6.98145390e-01 ... 0.00000000e+00
+    5.13998508e-01 0.00000000e+00]
+   [5.17619513e-02 0.00000000e+00 2.32970744e-01 ... 0.00000000e+00
+    7.00614929e-01 0.00000000e+00]]
+
+  [[0.00000000e+00 0.00000000e+00 7.27600157e-01 ... 0.00000000e+00
+    6.47647619e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.28688979e+00 ... 0.00000000e+00
+    6.14665091e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.20061994e+00 ... 0.00000000e+00
+    5.55189312e-01 0.00000000e+00]
+   ...
+   [0.00000000e+00 0.00000000e+00 1.07678413e+00 ... 0.00000000e+00
+    1.74386665e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.27304077e+00 ... 0.00000000e+00
+    3.41448426e-01 3.51253897e-02]
+   [0.00000000e+00 0.00000000e+00 5.77638447e-01 ... 0.00000000e+00
+    6.28854036e-01 0.00000000e+00]]
+
+  [[0.00000000e+00 0.00000000e+00 6.90288961e-01 ... 0.00000000e+00
+    5.14543176e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.19314063e+00 ... 0.00000000e+00
+    5.29698312e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 7.95895398e-01 ... 0.00000000e+00
+    5.92150033e-01 0.00000000e+00]
+   ...
+[0.00000000e+00 0.00000000e+00 6.61949575e-01 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 7.41784811e-01 ... 0.00000000e+00
+    6.39935017e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.09689355e+00 ... 0.00000000e+00
+    9.84457970e-01 0.00000000e+00]]
+
+  ...
+
+  [[3.99086595e-01 0.00000000e+00 4.29216981e-01 ... 0.00000000e+00
+    1.15286231e+00 0.00000000e+00]
+   [3.91632825e-01 0.00000000e+00 1.37190688e+00 ... 0.00000000e+00
+    2.70574540e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 8.19551110e-01 ... 0.00000000e+00
+    4.00886014e-02 0.00000000e+00]
+   ...
+   [1.03250265e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   [1.02370775e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   [6.63924694e-01 0.00000000e+00 6.56389236e-01 ... 0.00000000e+00
+    6.87474787e-01 0.00000000e+00]]
+
+  [[4.80567902e-01 0.00000000e+00 7.79882550e-01 ... 0.00000000e+00
+    1.11835825e+00 0.00000000e+00]
+   [5.68710566e-01 0.00000000e+00 1.82448113e+00 ... 0.00000000e+00
+    6.40903115e-01 0.00000000e+00]
+   [1.87225282e-01 0.00000000e+00 1.75477636e+00 ... 0.00000000e+00
+    4.88265693e-01 0.00000000e+00]
+   ...
+   [8.34046245e-01 0.00000000e+00 7.79555023e-01 ... 0.00000000e+00
+    7.44924545e-01 0.00000000e+00]
+   [3.72648776e-01 0.00000000e+00 1.86737394e+00 ... 0.00000000e+00
+    6.56993032e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 2.20197821e+00 ... 0.00000000e+00
+ 6.67209864e-01 0.00000000e+00]]
+
+  [[5.63766733e-02 0.00000000e+00 1.57166982e+00 ... 0.00000000e+00
+    1.06041229e+00 0.00000000e+00]
+   [1.93001688e-01 0.00000000e+00 1.71140563e+00 ... 0.00000000e+00
+    8.10392618e-01 0.00000000e+00]
+   [1.60508648e-01 0.00000000e+00 1.78165925e+00 ... 0.00000000e+00
+    7.56978333e-01 0.00000000e+00]
+   ...
+   [6.89613163e-01 0.00000000e+00 1.26700377e+00 ... 0.00000000e+00
+    4.60856855e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 2.35172033e+00 ... 0.00000000e+00
+    6.12778127e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 2.67540073e+00 ... 0.00000000e+00
+    6.31675780e-01 0.00000000e+00]]]
+
+
+ [[[1.85580060e-01 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    8.84982109e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 4.66149181e-01 ... 0.00000000e+00
+    1.00331914e+00 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 6.28812253e-01 ... 0.00000000e+00
+    8.51441145e-01 0.00000000e+00]
+   ...
+   [0.00000000e+00 0.00000000e+00 4.49060500e-01 ... 0.00000000e+00
+    6.23165727e-01 0.00000000e+00]
+   [3.78525108e-02 0.00000000e+00 5.14497399e-01 ... 0.00000000e+00
+    5.87730944e-01 0.00000000e+00]
+   [3.46905529e-01 0.00000000e+00 3.80038083e-01 ... 0.00000000e+00
+    6.06396139e-01 0.00000000e+00]]
+
+  [[0.00000000e+00 0.00000000e+00 3.39390375e-02 ... 0.00000000e+00
+    2.32400641e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 9.87422466e-01 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+[0.00000000e+00 0.00000000e+00 1.11008799e+00 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   ...
+   [0.00000000e+00 0.00000000e+00 1.00527883e+00 ... 0.00000000e+00
+    3.50536466e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 8.97705495e-01 ... 0.00000000e+00
+    4.74255472e-01 0.00000000e+00]
+   [6.79931402e-01 0.00000000e+00 1.05566490e+00 ... 8.21788087e-02
+    7.54162192e-01 0.00000000e+00]]
+
+  [[0.00000000e+00 0.00000000e+00 1.11671619e-01 ... 0.00000000e+00
+    2.16856286e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.03737462e+00 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.22653878e+00 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   ...
+   [0.00000000e+00 0.00000000e+00 1.12237287e+00 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 5.61456263e-01 ... 0.00000000e+00
+    3.44775200e-01 0.00000000e+00]
+   [7.87608549e-02 0.00000000e+00 1.01041830e+00 ... 0.00000000e+00
+    9.38097775e-01 0.00000000e+00]]
+
+  ...
+
+  [[3.40605319e-01 0.00000000e+00 4.65791970e-02 ... 0.00000000e+00
+    8.01000237e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 5.05814373e-01 ... 0.00000000e+00
+    3.83442819e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   ...
+   [0.00000000e+00 0.00000000e+00 1.50925219e-01 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.56454459e-01 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   [3.28461558e-01 0.00000000e+00 4.85470630e-02 ... 0.00000000e+00
+ 4.00207639e-01 0.00000000e+00]]
+
+  [[5.52365363e-01 0.00000000e+00 1.13530792e-01 ... 0.00000000e+00
+    1.03119707e+00 0.00000000e+00]
+   [5.14084995e-01 0.00000000e+00 9.39605162e-02 ... 0.00000000e+00
+    8.45687389e-01 0.00000000e+00]
+   [1.00732811e-01 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   ...
+   [4.39362973e-01 0.00000000e+00 3.66480425e-02 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   [1.46727234e-01 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    4.50715661e-01 0.00000000e+00]]
+
+  [[5.37155509e-01 0.00000000e+00 2.89796561e-01 ... 0.00000000e+00
+    9.83752072e-01 0.00000000e+00]
+   [4.30532724e-01 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    8.36084604e-01 0.00000000e+00]
+   [1.64133400e-01 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    4.53784794e-01 0.00000000e+00]
+   ...
+   [1.03145671e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    6.98687077e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    6.71702564e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    7.27319002e-01 0.00000000e+00]]]
+
+
+ ...
+ [[[0.00000000e+00 0.00000000e+00 4.43328917e-01 ... 0.00000000e+00
+    1.85624242e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.03217542e+00 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   [1.37921065e-01 0.00000000e+00 1.07494390e+00 ... 0.00000000e+00
+    1.65077224e-02 0.00000000e+00]
+   ...
+   [0.00000000e+00 0.00000000e+00 1.25288451e+00 ... 0.00000000e+00
+    1.43052235e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.36194313e+00 ... 0.00000000e+00
+    5.10023713e-01 0.00000000e+00]
+   [1.59684211e-01 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    5.69818497e-01 0.00000000e+00]]
+
+  [[9.05335665e-01 0.00000000e+00 8.34742785e-01 ... 1.15836710e-01
+    1.47857815e-01 0.00000000e+00]
+   [1.08214378e+00 0.00000000e+00 6.69787824e-01 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   [1.02337348e+00 0.00000000e+00 7.16852069e-01 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   ...
+   [7.34674931e-02 0.00000000e+00 1.80416489e+00 ... 9.37641636e-02
+    4.35314253e-02 5.28765738e-01]
+   [5.74775115e-02 0.00000000e+00 1.80481923e+00 ... 0.00000000e+00
+    5.57396829e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 3.98351163e-01 ... 0.00000000e+00
+    2.48000324e-01 0.00000000e+00]]
+
+  [[7.47910500e-01 0.00000000e+00 1.26289790e-02 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   [1.05739188e+00 0.00000000e+00 8.03497583e-02 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   [1.08466053e+00 0.00000000e+00 2.87839830e-01 ... 0.00000000e+00
+    1.98056945e-03 0.00000000e+00]
+   ...
+   [8.37054551e-01 0.00000000e+00 1.94169581e+00 ... 4.42416638e-01
+    0.00000000e+00 3.29632908e-01]
+   [7.22313523e-01 0.00000000e+00 1.71571040e+00 ... 6.26648590e-02
+    3.29723001e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 5.56894600e-01 ... 0.00000000e+00
+ 1.03897769e-02 0.00000000e+00]]
+
+  ...
+
+  [[0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    6.82451427e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    9.55807567e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    6.26205266e-01 0.00000000e+00]
+   ...
+   [9.28180754e-01 0.00000000e+00 8.68633211e-01 ... 0.00000000e+00
+    2.51636952e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 6.21538460e-01 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]]
+
+  [[0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    7.13569760e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 7.07962066e-02 ... 0.00000000e+00
+    8.43208134e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    7.60911763e-01 0.00000000e+00]
+   ...
+   [0.00000000e+00 0.00000000e+00 1.04461920e+00 ... 0.00000000e+00
+    5.07076383e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 6.88630044e-01 ... 0.00000000e+00
+    2.42919222e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    1.38951913e-01 0.00000000e+00]]
+
+  [[0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    9.90817666e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 5.36929145e-02 ... 0.00000000e+00
+    9.29165661e-01 0.00000000e+00]
+ [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    5.91655612e-01 0.00000000e+00]
+   ...
+   [0.00000000e+00 0.00000000e+00 1.54999673e-01 ... 0.00000000e+00
+    1.14548218e+00 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 2.23290935e-01 ... 0.00000000e+00
+    6.82767391e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    5.90683818e-01 0.00000000e+00]]]
+
+
+ [[[1.68633014e-01 0.00000000e+00 8.61998558e-01 ... 0.00000000e+00
+    9.27316785e-01 0.00000000e+00]
+   [2.43124396e-01 0.00000000e+00 5.74798405e-01 ... 0.00000000e+00
+    9.86201286e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.54755580e+00 ... 0.00000000e+00
+    1.07207942e+00 0.00000000e+00]
+   ...
+   [0.00000000e+00 0.00000000e+00 3.72738123e-01 ... 0.00000000e+00
+    2.42955595e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.99467695e+00 ... 0.00000000e+00
+    1.40089318e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 2.38902545e+00 ... 2.23500729e-01
+    3.55495960e-01 1.22124456e-01]]
+
+  [[0.00000000e+00 0.00000000e+00 7.90940762e-01 ... 0.00000000e+00
+    1.06418538e+00 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.79599345e-01 ... 0.00000000e+00
+    7.55582809e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.93325090e+00 ... 1.58432603e-01
+    9.80748296e-01 0.00000000e+00]
+   ...
+   [9.33542997e-02 0.00000000e+00 2.64923835e+00 ... 0.00000000e+00
+    2.18846709e-01 2.49037519e-01]
+ [0.00000000e+00 0.00000000e+00 2.45201635e+00 ... 0.00000000e+00
+    3.33429198e-03 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 2.45820045e+00 ... 2.01261818e-01
+    2.83813149e-01 0.00000000e+00]]
+
+  [[0.00000000e+00 0.00000000e+00 4.72815633e-01 ... 0.00000000e+00
+    9.23390985e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.37038603e-01 ... 0.00000000e+00
+    5.28170168e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.29586864e+00 ... 0.00000000e+00
+    7.39466131e-01 0.00000000e+00]
+   ...
+   [0.00000000e+00 0.00000000e+00 2.14086676e+00 ... 0.00000000e+00
+    5.57321757e-02 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.97639287e+00 ... 0.00000000e+00
+    4.39569503e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.63565695e+00 ... 0.00000000e+00
+    2.97794849e-01 0.00000000e+00]]
+
+  ...
+
+  [[0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    4.64761347e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 3.74768764e-01 ... 0.00000000e+00
+    2.74377137e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 2.33427143e+00 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   ...
+   [2.91980128e-03 0.00000000e+00 1.43679607e+00 ... 0.00000000e+00
+    3.03911954e-01 0.00000000e+00]
+   [3.52033347e-01 0.00000000e+00 6.29391253e-01 ... 0.00000000e+00
+    3.97366256e-01 0.00000000e+00]
+   [7.12487817e-01 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    6.82628572e-01 0.00000000e+00]]
+[[0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    6.51545644e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 4.07497257e-01 ... 0.00000000e+00
+    4.30874079e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 8.67068827e-01 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   ...
+   [2.86989659e-01 0.00000000e+00 2.47161460e+00 ... 0.00000000e+00
+    5.00600398e-01 0.00000000e+00]
+   [1.92691728e-01 0.00000000e+00 2.20639467e+00 ... 0.00000000e+00
+    6.82005823e-01 0.00000000e+00]
+   [2.95645650e-02 0.00000000e+00 6.29915893e-02 ... 0.00000000e+00
+    4.16909486e-01 0.00000000e+00]]
+
+  [[0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    9.36613560e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    1.00579894e+00 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 4.95477915e-01 ... 0.00000000e+00
+    6.59439325e-01 0.00000000e+00]
+   ...
+   [4.69772726e-01 0.00000000e+00 1.60395157e+00 ... 0.00000000e+00
+    9.07361448e-01 0.00000000e+00]
+   [3.50840271e-01 0.00000000e+00 1.34495544e+00 ... 0.00000000e+00
+    1.00947201e+00 0.00000000e+00]
+   [3.18437696e-01 0.00000000e+00 2.64511377e-01 ... 0.00000000e+00
+    7.20502615e-01 0.00000000e+00]]]
+
+
+ [[[4.06998783e-01 0.00000000e+00 2.23223925e+00 ... 0.00000000e+00
+    1.32926857e+00 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.21636772e+00 ... 0.00000000e+00
+    7.46140540e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 3.29853445e-01 ... 0.00000000e+00
+    9.60217297e-01 0.00000000e+00]
+   ...
+   [0.00000000e+00 0.00000000e+00 1.07936990e+00 ... 0.00000000e+00
+    5.33394873e-01 0.00000000e+00]
+[0.00000000e+00 0.00000000e+00 5.38675666e-01 ... 0.00000000e+00
+    9.03544724e-01 0.00000000e+00]
+   [2.27869913e-01 0.00000000e+00 4.68942858e-02 ... 0.00000000e+00
+    1.15583038e+00 0.00000000e+00]]
+
+  [[1.23030767e-01 0.00000000e+00 1.38803065e+00 ... 0.00000000e+00
+    1.32390380e+00 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 6.11472964e-01 ... 0.00000000e+00
+    8.27341795e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 4.51548934e-01 ... 0.00000000e+00
+    7.42285907e-01 0.00000000e+00]
+   ...
+   [0.00000000e+00 0.00000000e+00 3.52875471e-01 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.41688120e+00 ... 0.00000000e+00
+    7.41718471e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.06698501e+00 ... 1.65655524e-01
+    1.15901315e+00 0.00000000e+00]]
+
+  [[1.71840861e-01 0.00000000e+00 1.87532425e+00 ... 0.00000000e+00
+    6.00197077e-01 0.00000000e+00]
+   [2.08049774e-01 0.00000000e+00 9.62077677e-01 ... 0.00000000e+00
+    6.45319372e-02 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 4.73302007e-01 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   ...
+   [0.00000000e+00 0.00000000e+00 1.08351290e+00 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   [8.89165774e-02 0.00000000e+00 2.37306809e+00 ... 0.00000000e+00
+    1.38784796e-01 0.00000000e+00]
+   [5.76902628e-01 0.00000000e+00 2.43375230e+00 ... 0.00000000e+00
+    5.92017055e-01 0.00000000e+00]]
+
+  ...
+[[0.00000000e+00 0.00000000e+00 4.09975111e-01 ... 0.00000000e+00
+    1.24330878e+00 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.10736184e-01 ... 0.00000000e+00
+    1.12172103e+00 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 1.96402818e-01 ... 0.00000000e+00
+    1.43799067e+00 0.00000000e+00]
+   ...
+   [4.87743497e-01 0.00000000e+00 7.58727565e-02 ... 0.00000000e+00
+    0.00000000e+00 0.00000000e+00]
+   [5.42009532e-01 0.00000000e+00 6.38387620e-01 ... 0.00000000e+00
+    7.96588659e-01 0.00000000e+00]
+   [6.57770038e-01 0.00000000e+00 1.23217463e+00 ... 6.74811017e-05
+    5.62554777e-01 0.00000000e+00]]
+
+  [[0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    1.33076048e+00 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    1.08781779e+00 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    1.40518045e+00 0.00000000e+00]
+   ...
+   [0.00000000e+00 0.00000000e+00 7.25166976e-01 ... 6.04034811e-02
+    8.73281658e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 7.00969577e-01 ... 0.00000000e+00
+    9.17458057e-01 0.00000000e+00]
+   [1.21101409e-01 0.00000000e+00 1.03402007e+00 ... 0.00000000e+00
+    7.07213402e-01 0.00000000e+00]]
+
+  [[0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    1.17509520e+00 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    8.84068310e-01 0.00000000e+00]
+   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    1.09978878e+00 0.00000000e+00]
+ ...
+   [0.00000000e+00 0.00000000e+00 0.00000000e+00 ... 0.00000000e+00
+    9.92509007e-01 0.00000000e+00]
+   [6.65033981e-02 0.00000000e+00 6.85854912e-01 ... 0.00000000e+00
+    7.01246023e-01 0.00000000e+00]
+   [1.99218392e-01 0.00000000e+00 8.34564686e-01 ... 0.00000000e+00
+    8.03791344e-01 0.00000000e+00]]]]
+rounded test_labels [[1. 0. 0. 0. 0.]
+ [1. 0. 0. 0. 0.]
+ [1. 0. 0. 0. 0.]
+ ...
+ [0. 0. 0. 0. 1.]
+ [0. 0. 0. 0. 1.]
+ [0. 0. 0. 0. 1.]]
+flowers = ['daisy', 'dandelion', 'rose', 'sunflower', 'tulip']
+classification_metrics = metrics.classification_report(test_labels, preds, target_names=flowers )
+print(classification_metrics)
+              precision    recall  f1-score   support
+
+       daisy       0.97      0.83      0.90       276
+   dandelion       0.94      0.90      0.92       330
+        rose       0.89      0.88      0.89       280
+   sunflower       0.96      0.89      0.92       265
+       tulip       0.86      0.93      0.89       313
+
+   micro avg       0.92      0.89      0.90      1464
+   macro avg       0.93      0.89      0.90      1464
+weighted avg       0.92      0.89      0.90      1464
+ samples avg       0.89      0.89      0.89      1464
+C:\Users\LENOVO\Anaconda3\lib\site-packages\sklearn\metrics\classification.py:1437: UndefinedMetricWarning: Precision and F-score are ill-defined and being set to 0.0 in samples with no predicted labels.
+  'precision', 'predicted', average, warn_for)
+confution matrix
+#Since our data is in dummy format we put the numpy array into a dataframe and call idxmax axis=1 to return the column
+# label of the maximum value thus creating a categorical variable
+#Basically, flipping a dummy variable back to it's categorical variable
+categorical_test_labels = pd.DataFrame(test_labels).idxmax(axis=1)
+categorical_preds = pd.DataFrame(preds).idxmax(axis=1)
+confusion_matrix= confusion_matrix(categorical_test_labels, categorical_preds)
+#To get better visual of the confusion matrix:
+def plot_confusion_matrix(cm, classes,
+             normalize=False,
+             title='Confusion matrix',
+             cmap=plt.cm.Blues):
+    #Add Normalization Option
+    '''prints pretty confusion metric with normalization option '''
+    if normalize:
+        cm = cm.astype('float') / cm.sum(axis=1)[:, np.newaxis]
+        print("Normalized confusion matrix")
+ else:
+        print('Confusion matrix, without normalization')
+    
+#     print(cm)
+    
+    plt.imshow(cm, interpolation='nearest', cmap=cmap)
+    plt.title(title)
+    plt.colorbar()
+    tick_marks = np.arange(len(classes))
+    plt.xticks(tick_marks, classes, rotation=45)
+    plt.yticks(tick_marks, classes)
+    
+    fmt = '.2f' if normalize else 'd'
+    thresh = cm.max() / 2.
+    for i, j in itertools.product(range(cm.shape[0]), range(cm.shape[1])):
+        plt.text(j, i, format(cm[i, j], fmt), horizontalalignment="center", color="white" if cm[i, j] > thresh else "black")
+    
+    plt.tight_layout()
+    plt.ylabel('True label')
+    plt.xlabel('Predicted label')
+plot_confusion_matrix(confusion_matrix, ['daisy', 'dandelion', 'rose', 'sunflower', 'tulip'])
+Confusion matrix, without normalization
+#Those numbers are all over the place. Now turning normalize= True
+plot_confusion_matrix(confusion_matrix, 
+                      ['daisy', 'dandelion', 'rose', 'sunflower', 'tulip'],
+                     normalize=True)
+Normalized confusion matrix
+
+Testing images on model
+def read_image(file_path):
+    print("[INFO] loading and preprocessing image...")  
+    image = load_img(file_path, target_size=(224, 224))  
+    image = img_to_array(image)  
+    image = np.expand_dims(image, axis=0)
+image /= 255.  
+    return image
+def test_single_image(path):
+    flowers = ['daisy', 'dandelion', 'rose', 'sunflower', 'tulip']
+    images = read_image(path)
+    time.sleep(.5)
+    bt_prediction = vgg16.predict(images)  
+    preds = model.predict_proba(bt_prediction)
+    for idx, flower, x in zip(range(0,6), flowers , preds[0]):
+        print("ID: {}, Label: {} {}%".format(idx, flower, round(x*100,2) ))
+    print('Final Decision:')
+    time.sleep(.5)
+    for x in range(3):
+        print('.'*(x+1))
+        time.sleep(.2)
+    class_predicted = model.predict_classes(bt_prediction)
+    class_dictionary = generator_top.class_indices  
+    inv_map = {v: k for k, v in class_dictionary.items()}  
+    print("ID: {}, Label: {}".format(class_predicted[0], inv_map[class_predicted[0]]))  
+    return load_img(path)
+path = 'data/test/dog.jpg'
+test_single_image(path)
+[INFO] loading and preprocessing image...
+ID: 0, Label: daisy 3.64%
+ID: 1, Label: dandelion 3.14%
+ID: 2, Label: rose 89.91%
+ID: 3, Label: sunflower 1.52%
+ID: 4, Label: tulip 1.79%
+Final Decision:
+.
+..
+...
+ID: 2, Label: rose
+
